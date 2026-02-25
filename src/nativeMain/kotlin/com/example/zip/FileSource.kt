@@ -1,14 +1,199 @@
 package com.example.zip
 
-import kotlinx.cinterop.*
-import platform.posix.*
-import platform.zlib.*
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.UByteVar
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.alloc
+import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.ptr
+import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.usePinned
+import kotlinx.io.Sink
+import platform.posix.O_CREAT
+import platform.posix.O_EXCL
+import platform.posix.O_RDONLY
+import platform.posix.O_RDWR
+import platform.posix.O_WRONLY
+import platform.posix.SEEK_SET
+import platform.posix.close
+import platform.posix.fstat
+import platform.posix.getenv
+import platform.posix.lseek
+import platform.posix.open
+import platform.posix.read
+import platform.posix.stat
+import platform.posix.unlink
+import platform.posix.write
+import platform.zlib.Z_DEFAULT_COMPRESSION
+import platform.zlib.Z_DEFAULT_STRATEGY
+import platform.zlib.Z_DEFLATED
+import platform.zlib.Z_FINISH
+import platform.zlib.Z_NO_FLUSH
+import platform.zlib.Z_OK
+import platform.zlib.Z_STREAM_END
+import platform.zlib.deflate
+import platform.zlib.deflateEnd
+import platform.zlib.deflateInit2
+import platform.zlib.inflate
+import platform.zlib.inflateEnd
+import platform.zlib.inflateInit2
+import platform.zlib.z_stream
+import kotlin.random.Random
+
+/**
+ * Создание временного файла
+ */
+@OptIn(ExperimentalForeignApi::class)
+actual fun createTempFile(prefix: String): String {
+    val tempDir = getenv("TMPDIR")?.toString() ?: "/tmp"
+    val randomSuffix = Random.nextInt(100000, 999999)
+    val tempPath = "$tempDir/${prefix}$randomSuffix.tmp"
+
+    val fd = open(tempPath, O_RDWR or O_CREAT or O_EXCL, 384) // 0600
+    if (fd < 0) {
+        throw IllegalStateException("Cannot create temp file: $tempPath")
+    }
+    close(fd)
+
+    return tempPath
+}
+
+/**
+ * Удаление временного файла
+ */
+@OptIn(ExperimentalForeignApi::class)
+actual fun deleteTempFile(path: String) {
+    unlink(path)
+}
+
+/**
+ * Сжатие данных из source во временный файл с использованием потокового DEFLATE
+ * @return размер сжатых данных
+ */
+@OptIn(ExperimentalForeignApi::class)
+actual fun compressToTempFile(
+    source: FileSource,
+    sourceSize: Long,
+    tempFilePath: String
+): Long {
+    val fd = open(tempFilePath, O_WRONLY)
+    if (fd < 0) {
+        throw IllegalStateException("Cannot open temp file for writing: $tempFilePath")
+    }
+
+    return try {
+        memScoped {
+            val strm = alloc<z_stream>()
+
+            val initResult = deflateInit2(
+                strm.ptr,
+                Z_DEFAULT_COMPRESSION,
+                Z_DEFLATED,
+                -15,
+                8,
+                Z_DEFAULT_STRATEGY
+            )
+
+            if (initResult != Z_OK) {
+                throw IllegalStateException("deflateInit2 failed with code: $initResult")
+            }
+
+            try {
+                val inputBuffer = ByteArray(65536)
+                val outputBuffer = ByteArray(65536)
+                var totalWritten = 0L
+                var sourceOffset = 0L
+
+                source.seek(0)
+
+                while (sourceOffset < sourceSize) {
+                    val toRead = minOf(inputBuffer.size.toLong(), sourceSize - sourceOffset).toInt()
+                    val bytesRead = source.read(inputBuffer, 0, toRead)
+
+                    if (bytesRead <= 0) break
+
+                    inputBuffer.usePinned { inputPinned ->
+                        strm.next_in = inputPinned.addressOf(0).reinterpret<UByteVar>()
+                        strm.avail_in = bytesRead.toUInt()
+
+                        var flush = Z_NO_FLUSH
+                        if (sourceOffset + bytesRead >= sourceSize) {
+                            flush = Z_FINISH
+                        }
+
+                        do {
+                            outputBuffer.usePinned { outputPinned ->
+                                strm.next_out = outputPinned.addressOf(0).reinterpret<UByteVar>()
+                                strm.avail_out = outputBuffer.size.toUInt()
+
+                                val result = deflate(strm.ptr, flush)
+
+                                if (result != Z_OK && result != Z_STREAM_END) {
+                                    throw IllegalStateException("deflate failed with code: $result")
+                                }
+
+                                val produced = outputBuffer.size - strm.avail_out.toInt()
+                                if (produced > 0) {
+                                    outputBuffer.usePinned { pinned ->
+                                        write(fd, pinned.addressOf(0), produced.toULong())
+                                    }
+                                    totalWritten += produced
+                                }
+                            }
+                        } while (strm.avail_out.toInt() == 0)
+                    }
+
+                    sourceOffset += bytesRead
+                }
+
+                totalWritten
+            } finally {
+                deflateEnd(strm.ptr)
+            }
+        }
+    } finally {
+        close(fd)
+    }
+}
+
+/**
+ * Копирование данных из временного файла в sink
+ * @return количество скопированных байт
+ */
+@OptIn(ExperimentalForeignApi::class)
+actual fun copyFromTempFile(tempFilePath: String, sink: Sink, size: Long): Long {
+    val fd = open(tempFilePath, O_RDONLY)
+    if (fd < 0) {
+        throw IllegalStateException("Cannot open temp file for reading: $tempFilePath")
+    }
+
+    try {
+        val buffer = ByteArray(65536)
+        var totalRead = 0L
+
+        while (totalRead < size) {
+            val toRead = minOf(buffer.size.toLong(), size - totalRead).toInt()
+            val bytesRead = buffer.usePinned { pinned ->
+                read(fd, pinned.addressOf(0), toRead.toULong()).toInt()
+            }
+
+            if (bytesRead <= 0) break
+
+            sink.write(buffer.copyOf(bytesRead))
+            totalRead += bytesRead
+        }
+
+        return totalRead
+    } finally {
+        close(fd)
+    }
+}
 
 /**
  * POSIX FileSource реализация для Linux и macOS
  */
 @OptIn(ExperimentalForeignApi::class)
-actual class FileSource actual constructor(private val path: String) {
+actual class FileSource actual constructor(path: String) {
     private var fd: Int = -1
     private var fileSize: Long = 0
 
@@ -22,7 +207,7 @@ actual class FileSource actual constructor(private val path: String) {
         memScoped {
             val statBuf = alloc<stat>()
             if (fstat(fd, statBuf.ptr) == 0) {
-                fileSize = statBuf.st_size.toLong()
+                fileSize = statBuf.st_size
             }
         }
     }
@@ -33,7 +218,7 @@ actual class FileSource actual constructor(private val path: String) {
 
     actual fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         return buffer.usePinned { pinned ->
-            platform.posix.read(fd, pinned.addressOf(offset), length.toULong()).toInt()
+            read(fd, pinned.addressOf(offset), length.toULong()).toInt()
         }
     }
 
@@ -41,7 +226,7 @@ actual class FileSource actual constructor(private val path: String) {
 
     actual fun close() {
         if (fd >= 0) {
-            platform.posix.close(fd)
+            close(fd)
             fd = -1
         }
     }

@@ -207,4 +207,53 @@ class StreamingZipTest {
         println("Uncompressed: $uncompressedSize, Compressed: $compressedSize")
         assertTrue(compressedSize < uncompressedSize, "Compressed archive should be smaller")
     }
+    
+    @Test
+    fun testAddLargeFile() {
+        val buffer = Buffer()
+        val writer = StreamingZipWriter()
+        
+        // Создаем большой набор данных (1MB)
+        val largeData = ByteArray(1024 * 1024) { (it % 256).toByte() }
+        val source = Buffer().apply { write(largeData) }
+        
+        // Для тестирования в common модуле используем addFileStreaming
+        // В нативной реализации будет использоваться addLargeFile с FileSource
+        writer.addFileStreaming(buffer, "large.bin", source, CompressionMethod.STORE)
+        writer.finish(buffer)
+        
+        assertEquals(1, writer.getEntryCount(), "Should have 1 entry")
+        
+        val bytes = buffer.readByteArray()
+        // Архив должен быть больше данных из-за заголовков
+        assertTrue(bytes.size > largeData.size, "Archive should contain headers plus data")
+    }
+    
+    @Test
+    fun testCompressionDecision() {
+        // Тестируем логику выбора метода сжатия
+        val smallData = ByteArray(500) { it.toByte() }  // < 1KB
+        val mediumData = ByteArray(2000) { it.toByte() } // > 1KB
+        
+        val buffer1 = Buffer()
+        val writer1 = StreamingZipWriter()
+        writer1.addFile(buffer1, "small.bin", smallData)
+        writer1.finish(buffer1)
+        
+        val buffer2 = Buffer()
+        val writer2 = StreamingZipWriter()
+        writer2.addFile(buffer2, "medium.bin", mediumData)
+        writer2.finish(buffer2)
+        
+        // Оба архива должны быть созданы успешно
+        assertEquals(1, writer1.getEntryCount())
+        assertEquals(1, writer2.getEntryCount())
+        
+        val archive1 = buffer1.readByteArray()
+        val archive2 = buffer2.readByteArray()
+        
+        // Проверяем что архивы имеют разумный размер
+        assertTrue(archive1.size > smallData.size, "Small file archive should have headers")
+        assertTrue(archive2.size > mediumData.size, "Medium file archive should have headers")
+    }
 }

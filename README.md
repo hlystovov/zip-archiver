@@ -148,6 +148,30 @@ val compression = if (content.size > 1024) {
 | База данных | 10 KB | ~3 KB | 70% |
 | Маленький файл (<1KB) | 70 байт | 70 байт | 0% (STORE) |
 
+### Поддержка больших файлов с DEFLATE
+
+Для файлов, которые не помещаются в память, используется двухпроходный подход с временными файлами:
+
+```kotlin
+// Первый проход: сжатие во временный файл для определения размера
+val compressedSize = compressToTempFile(fileSource, fileSize, tempFile)
+
+// Второй проход: запись заголовка и копирование сжатых данных
+val localHeader = LocalFileHeader(
+    name = name,
+    compression = if (compressedSize < fileSize) DEFLATE else STORE,
+    compressedSize = compressedSize.toInt(),
+    uncompressedSize = fileSize.toInt()
+)
+localHeader.writeTo(sink)
+copyFromTempFile(tempFile, sink, compressedSize)
+```
+
+**Особенности:**
+- Автоматический выбор метода: если сжатие неэффективно (размер увеличивается), используется STORE
+- Потоковая обработка: данные читаются и сжимаются чанками без загрузки всего файла в память
+- Временные файлы: автоматически создаются и удаляются после использования
+
 ## Архитектура
 
 ### Raw DEFLATE реализация
@@ -263,6 +287,7 @@ object CompressionMethod {
 - [x] Raw DEFLATE сжатие (без zlib wrapper)
 - [x] Автоматический выбор метода сжатия
 - [x] Двухпроходная обработка больших файлов
+- [x] Поддержка DEFLATE для больших файлов через временные файлы
 - [ ] ZIP64 поддержка для файлов > 4GB
 - [ ] Асинхронное сжатие
 - [ ] Параллельное сжатие нескольких файлов
