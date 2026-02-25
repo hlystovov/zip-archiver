@@ -29,6 +29,9 @@ kotlin {
     // iOS Simulator ARM64
     iosSimulatorArm64()
     
+    // JVM
+    jvm()
+    
     sourceSets {
         commonMain {
             dependencies {
