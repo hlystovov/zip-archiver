@@ -1,0 +1,46 @@
+# Build
+build/
+.gradle/
+*.iml
+.idea/
+.gigaide/
+*.ipr
+*.iws
+
+# Kotlin
+*.class
+*.jar
+*.war
+*.ear
+.kotlin/
+
+# Native
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.kexe
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test results
+test-results/
+reports/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
