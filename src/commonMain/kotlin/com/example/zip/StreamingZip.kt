@@ -1,11 +1,14 @@
 package com.example.zip
 
+import okio.Buffer
 import okio.BufferedSink
 import okio.BufferedSource
+import okio.Deflater
 import okio.FileSystem
 import okio.Path.Companion.toPath
 import okio.SYSTEM
 import okio.buffer
+import okio.deflate
 import okio.use
 import kotlin.random.Random
 
@@ -165,7 +168,6 @@ class StreamingZipWriter {
         lastModifiedAtMillis: Long = 0
     ) {
         require(fileSize <= Int.MAX_VALUE) { "File too large for ZIP32" }
-
         val headerOffset = currentOffset
         val intSize = fileSize.toInt()
 
@@ -361,7 +363,7 @@ fun BufferedSink.writeZipShort(value: Short) {
  */
 fun createTempFile(prefix: String): String {
     val fileSystem = FileSystem.SYSTEM
-    val tempDir = getTempDirPath()
+    val tempDir = FileSystem.SYSTEM_TEMPORARY_DIRECTORY.toString()
     val randomSuffix = Random.nextInt(100000, 999999)
     val tempPath = "$tempDir/${prefix}$randomSuffix.tmp".toPath()
 
@@ -397,21 +399,30 @@ fun compressToTempFile(
     val fileSystem = FileSystem.SYSTEM
     val tempPath = tempFilePath.toPath()
     var totalRead = 0L
+    var compressedSize = 0L
 
     fileSystem.sink(tempPath).buffer().use { sink ->
-        val buffer = ByteArray(8192)
+        // nowrap=true для raw DEFLATE (без zlib заголовка)
+        val deflater = Deflater(-1, true)
+        val deflaterSink = sink.deflate(deflater)
 
-        while (totalRead < sourceSize) {
-            val toRead = kotlin.math.min(buffer.size, (sourceSize - totalRead).toInt())
-            val bytesRead = source.read(buffer, 0, toRead)
-            if (bytesRead <= 0) break
-            val bos = compress(buffer)
-            sink.write(bos)
-            totalRead += bytesRead
+        deflaterSink.use { compressedSink ->
+            val buffer = ByteArray(8192)
+
+            while (totalRead < sourceSize) {
+                val toRead = kotlin.math.min(buffer.size, (sourceSize - totalRead).toInt())
+                val bytesRead = source.read(buffer, 0, toRead)
+                if (bytesRead <= 0) break
+                compressedSink.write(Buffer().apply { write(buffer, 0, bytesRead) }, bytesRead.toLong())
+                totalRead += bytesRead
+            }
+            compressedSink.flush()
         }
     }
 
-    return totalRead
+    // Получаем реальный размер сжатого файла
+    compressedSize = fileSystem.metadata(tempPath).size ?: 0L
+    return compressedSize
 }
 
 /**
@@ -437,18 +448,3 @@ fun copyFromTempFile(tempFilePath: String, sink: BufferedSink, size: Long): Long
 
     return totalRead
 }
-
-/**
- * Сжатие данных (Deflate) - платформенно-зависимая реализация
- */
-internal expect fun compress(data: ByteArray): ByteArray
-
-internal expect fun compress(buffer: ByteArray, length: Int): ByteArray
-
-/**
- * Распаковка данных (Inflate)
- */
-internal expect fun decompress(compressed: ByteArray, uncompressedSize: Int): ByteArray
-
-
-expect fun getTempDirPath(): String
