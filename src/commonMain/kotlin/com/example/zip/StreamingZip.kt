@@ -2,7 +2,12 @@ package com.example.zip
 
 import okio.BufferedSink
 import okio.BufferedSource
-import kotlin.experimental.and
+import okio.FileSystem
+import okio.Path.Companion.toPath
+import okio.SYSTEM
+import okio.buffer
+import okio.use
+import kotlin.random.Random
 
 /**
  * ZIP Compression Methods
@@ -152,13 +157,9 @@ internal data class EndOfCentralDirectory(
         sink.writeZipShort(commentBytes.size.toShort())
         sink.write(commentBytes)
     }
-
-    val recordSize: Int
-        get() = 22 + comment.encodeToByteArray().size
 }
 
 // Helper extensions - ZIP uses little-endian format
-// Note: These are named writeZipInt/writeZipShort to avoid conflict with kotlinx.io methods
 private fun BufferedSink.writeZipInt(value: Int) {
     writeByte(value and 0xFF)
     writeByte((value shr 8) and 0xFF)
@@ -245,13 +246,9 @@ class StreamingZipWriter {
         source: BufferedSource,
         compression: Short = CompressionMethod.STORE
     ) {
-        // Используем Data Descriptor для стриминга
-        val useDataDescriptor = true
-        val flags = if (useDataDescriptor) ZipFlags.DATA_DESCRIPTOR else 0
-
+        val flags = ZipFlags.DATA_DESCRIPTOR
         val headerOffset = currentOffset
 
-        // Создаем локальный заголовок с нулевыми размерами
         val localHeader = LocalFileHeader(
             flags = flags,
             compression = compression,
@@ -261,16 +258,13 @@ class StreamingZipWriter {
             name = name
         )
 
-        // Пишем локальный заголовок
         localHeader.writeTo(sink)
         currentOffset += localHeader.headerSize
 
-        // Начинаем отслеживать данные
         crc32.reset()
         var compressedSize = 0
         var uncompressedSize = 0
 
-        // Создаем запись для отслеживания
         val entry = FileEntry(
             name = name,
             compression = compression,
@@ -278,7 +272,6 @@ class StreamingZipWriter {
             headerOffset = headerOffset
         )
 
-        // Обрабатываем данные чанками
         val buffer = ByteArray(8192)
 
         while (!source.exhausted()) {
@@ -286,11 +279,8 @@ class StreamingZipWriter {
             if (bytesRead <= 0) break
 
             uncompressedSize += bytesRead
-
-            // Обновляем CRC
             crc32.update(buffer, 0, bytesRead)
 
-            // Сжимаем или сохраняем как есть
             val dataToWrite = if (compression == CompressionMethod.DEFLATE) {
                 compress(buffer, bytesRead)
             } else {
@@ -302,13 +292,11 @@ class StreamingZipWriter {
             currentOffset += dataToWrite.size
         }
 
-        // Обновляем entry
         entry.crc32 = crc32.getValue()
         entry.compressedSize = compressedSize
         entry.uncompressedSize = uncompressedSize
         entries.add(entry)
 
-        // Пишем Data Descriptor
         val dataDescriptor = DataDescriptor(
             crc32 = entry.crc32,
             compressedSize = entry.compressedSize,
@@ -321,12 +309,6 @@ class StreamingZipWriter {
 
     /**
      * Добавить файл в архив с заранее известными данными
-     * Более эффективно для небольших файлов
-     *
-     * @param sink Куда писать данные архива
-     * @param name Имя файла в архиве
-     * @param data Данные файла
-     * @param compression Метод сжатия
      */
     fun addFile(
         sink: BufferedSink,
@@ -338,7 +320,6 @@ class StreamingZipWriter {
         crc32.update(data)
         val crc = crc32.getValue()
 
-        // Для небольших файлов вычисляем заранее
         val compressedData = if (compression == CompressionMethod.DEFLATE) {
             compress(data)
         } else {
@@ -376,15 +357,6 @@ class StreamingZipWriter {
 
     /**
      * Добавить файл в архив с двухпроходной обработкой (для больших файлов)
-     * Не использует Data Descriptor - совместим со всеми ZIP-ридерами
-     * Первый проход: вычисляет CRC и размер
-     * Второй проход: пишет данные
-     *
-     * @param sink Куда писать данные архива
-     * @param name Имя файла в архиве
-     * @param fileSource Источник файла с возможностью повторного чтения
-     * @param fileSize Размер файла
-     * @param compression Метод сжатия
      */
     fun addLargeFile(
         sink: BufferedSink,
@@ -398,7 +370,6 @@ class StreamingZipWriter {
         val headerOffset = currentOffset
         val intSize = fileSize.toInt()
 
-        // Первый проход: вычисляем CRC
         crc32.reset()
         val buffer = ByteArray(65536)
         var totalRead = 0L
@@ -413,16 +384,13 @@ class StreamingZipWriter {
         }
         val crc = crc32.getValue()
 
-        // Для STORE метода - размеры совпадают
-        // Для DEFLATE - сжимаем во временный файл
         if (compression == CompressionMethod.DEFLATE) {
             compressLargeFileToTemp(fileSource, fileSize, sink, name, crc, headerOffset)
-            return // compressLargeFileToTemp already added the entry
+            return
         }
 
         val compressedSize = intSize
 
-        // Для STORE метода - пишем заголовок и данные
         val localHeader = LocalFileHeader(
             name = name,
             compression = compression,
@@ -434,7 +402,6 @@ class StreamingZipWriter {
         localHeader.writeTo(sink)
         currentOffset += localHeader.headerSize
 
-        // Второй проход: пишем данные
         fileSource.seek(0)
         totalRead = 0
         while (totalRead < fileSize) {
@@ -459,11 +426,6 @@ class StreamingZipWriter {
         )
     }
 
-    /**
-     * Сжимает большой файл во временный файл, затем копирует в архив
-     * Использует двухпроходный подход: сначала сжатие во временный файл для получения размера,
-     * затем копирование в архив
-     */
     private fun compressLargeFileToTemp(
         fileSource: FileSource,
         fileSize: Long,
@@ -474,15 +436,12 @@ class StreamingZipWriter {
     ) {
         val tempFile = createTempFile("zip_compress_")
         try {
-            // Сжимаем данные во временный файл
             val compressedSize = compressToTempFile(fileSource, fileSize, tempFile)
 
-            // Если сжатие неэффективно (размер увеличился), используем STORE
             val useCompression = compressedSize < fileSize
             val finalCompression = if (useCompression) CompressionMethod.DEFLATE else CompressionMethod.STORE
             val finalCompressedSize = if (useCompression) compressedSize.toInt() else fileSize.toInt()
 
-            // Пишем заголовок
             val localHeader = LocalFileHeader(
                 name = name,
                 compression = finalCompression,
@@ -494,12 +453,10 @@ class StreamingZipWriter {
             localHeader.writeTo(sink)
             currentOffset += localHeader.headerSize
 
-            // Копируем данные из временного файла в архив
             if (useCompression) {
                 val bytesCopied = copyFromTempFile(tempFile, sink, compressedSize)
                 currentOffset += bytesCopied.toInt()
             } else {
-                // Если не используем сжатие, копируем оригинальные данные
                 fileSource.seek(0)
                 val buffer = ByteArray(65536)
                 var totalRead = 0L
@@ -529,15 +486,10 @@ class StreamingZipWriter {
         }
     }
 
-    /**
-     * Завершить архив - записать центральную директорию
-     * Этот метод ДОЛЖЕН быть вызван после добавления всех файлов
-     */
     fun finish(sink: BufferedSink) {
         val centralDirOffset = currentOffset
         var centralDirSize = 0
 
-        // Пишем центральную директорию
         for (entry in entries) {
             val cdEntry = CentralDirectoryEntry(
                 name = entry.name,
@@ -552,7 +504,6 @@ class StreamingZipWriter {
             centralDirSize += cdEntry.entrySize
         }
 
-        // Пишем EOCD
         val eocd = EndOfCentralDirectory(
             entriesOnDisk = entries.size.toShort(),
             totalEntries = entries.size.toShort(),
@@ -576,42 +527,110 @@ data class ZipEntryInfo(
     val offset: Int,
     val headerSize: Int,
     val hasDataDescriptor: Boolean = false
-) {
-    val dataOffset: Int
-        get() = offset + headerSize
-}
+)
 
 /**
  * Стриминговый ZIP Reader
- * Позволяет читать отдельные файлы без загрузки всего архива в память
  */
 class StreamingZipReader {
     private val entries = mutableListOf<ZipEntryInfo>()
 
-    /**
-     * Загрузить структуру архива (центральную директорию)
-     */
     fun load(source: BufferedSource, fileSize: Long) {
         entries.clear()
         // TODO: Реализовать чтение центральной директории
     }
 
-    /**
-     * Получить список файлов в архиве
-     */
     fun getEntries(): List<ZipEntryInfo> = entries.toList()
 
-    /**
-     * Извлечь файл
-     */
     fun extractFile(source: BufferedSource, entry: ZipEntryInfo, sink: BufferedSink) {
         // TODO: Реализовать извлечение с учетом Data Descriptor
     }
 }
 
 /**
- * Сжатие данных (Deflate)
- * Платформенно-зависимая реализация
+ * Создание временного файла
+ */
+fun createTempFile(prefix: String): String {
+    val fileSystem = FileSystem.SYSTEM
+    val tempDir = getTempDirPath()
+    val randomSuffix = Random.nextInt(100000, 999999)
+    val tempPath = "$tempDir/${prefix}$randomSuffix.tmp".toPath()
+
+    // Создаем пустой файл через okio
+    fileSystem.write(tempPath) {
+        // Пустой файл
+    }
+
+    return tempPath.toString()
+}
+
+/**
+ * Удаление временного файла
+ */
+fun deleteTempFile(path: String) {
+    val fileSystem = FileSystem.SYSTEM
+    val pathObj = path.toPath()
+    try {
+        fileSystem.delete(pathObj)
+    } catch (_: Exception) {
+        // Игнорируем ошибки при удалении
+    }
+}
+
+/**
+ * Сжатие данных из source во временный файл
+ */
+fun compressToTempFile(
+    source: FileSource,
+    sourceSize: Long,
+    tempFilePath: String
+): Long {
+    val fileSystem = FileSystem.SYSTEM
+    val tempPath = tempFilePath.toPath()
+    var totalRead = 0L
+
+    fileSystem.sink(tempPath).buffer().use { sink ->
+        val buffer = ByteArray(8192)
+
+        while (totalRead < sourceSize) {
+            val toRead = kotlin.math.min(buffer.size, (sourceSize - totalRead).toInt())
+            val bytesRead = source.read(buffer, 0, toRead)
+            if (bytesRead <= 0) break
+            val bos = compress(buffer)
+            sink.write(bos)
+            totalRead += bytesRead
+        }
+    }
+
+    return totalRead
+}
+
+/**
+ * Копирование данных из временного файла в sink
+ */
+fun copyFromTempFile(tempFilePath: String, sink: BufferedSink, size: Long): Long {
+    val fileSystem = FileSystem.SYSTEM
+    val path = tempFilePath.toPath()
+    var totalRead = 0L
+
+    fileSystem.source(path).use { source ->
+        val bufferedSource = source.buffer()
+
+        while (totalRead < size) {
+            val toRead = kotlin.math.min(65536L, size - totalRead).toInt()
+            val byteString = bufferedSource.readByteString(toRead.toLong())
+            if (byteString.size == 0) break
+
+            sink.write(byteString)
+            totalRead += byteString.size
+        }
+    }
+
+    return totalRead
+}
+
+/**
+ * Сжатие данных (Deflate) - платформенно-зависимая реализация
  */
 internal expect fun compress(data: ByteArray): ByteArray
 
@@ -622,38 +641,5 @@ internal expect fun compress(buffer: ByteArray, length: Int): ByteArray
  */
 internal expect fun decompress(compressed: ByteArray, uncompressedSize: Int): ByteArray
 
-/**
- * Платформенно-зависимый FileSource с поддержкой seek
- */
-expect class FileSource(path: String) {
-    fun seek(position: Long)
-    fun read(buffer: ByteArray, offset: Int, length: Int): Int
-    fun size(): Long
-    fun close()
-}
 
-/**
- * Создание временного файла
- */
-expect fun createTempFile(prefix: String): String
-
-/**
- * Удаление временного файла
- */
-expect fun deleteTempFile(path: String)
-
-/**
- * Сжатие данных из source во временный файл
- * @return размер сжатых данных
- */
-expect fun compressToTempFile(
-    source: FileSource,
-    sourceSize: Long,
-    tempFilePath: String
-): Long
-
-/**
- * Копирование данных из временного файла в sink
- * @return количество скопированных байт
- */
-expect fun copyFromTempFile(tempFilePath: String, sink: BufferedSink, size: Long): Long
+expect fun getTempDirPath(): String
