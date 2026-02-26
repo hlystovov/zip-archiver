@@ -36,12 +36,17 @@ class FileSource(path: String) {
     }
 
     fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        val byteString = bufferedSource?.readByteString(length.toLong()) ?: return -1
-        val bytes = byteString.toByteArray()
-        val bytesToCopy = kotlin.math.min(bytes.size, length)
-        bytes.copyInto(buffer, offset, 0, bytesToCopy)
-        currentPosition += bytesToCopy
-        return bytesToCopy
+        val source = bufferedSource ?: return -1
+        val bytes = if (source.request(length.toLong())) {
+            source.readByteArray(length.toLong())
+        } else {
+            val available = source.buffer.size
+            if (available == 0L) return -1
+            source.readByteArray(available)
+        }
+        bytes.copyInto(buffer, offset)
+        currentPosition += bytes.size
+        return bytes.size
     }
 
     fun size(): Long {

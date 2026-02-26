@@ -242,6 +242,7 @@ class StreamingZipWriter {
     ) {
         val tempFile = createTempFile("zip_compress_")
         try {
+            fileSource.seek(0)
             val compressedSize = compressToTempFile(fileSource, fileSize, tempFile)
 
             val useCompression = compressedSize < fileSize

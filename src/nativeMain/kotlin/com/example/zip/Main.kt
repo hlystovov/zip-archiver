@@ -107,7 +107,7 @@ private fun createArchive(args: Array<String>) {
                 if (fileSize > LARGE_FILE_THRESHOLD) {
                     // Большой файл - используем двухпроходную обработку
                     println("    Large file (${fileSize / 1024 / 1024}MB), using two-pass processing...")
-                    writer.addLargeFile(buffer, name, fileSource, fileSize, CompressionMethod.STORE, lastModified)
+                    writer.addLargeFile(buffer, name, fileSource, fileSize, CompressionMethod.DEFLATE, lastModified)
                 } else if (fileSize <= Int.MAX_VALUE) {
                     // Маленький файл - читаем через fileSource вместо повторного открытия
                     val content = readFileFromSource(fileSource, fileSize)
