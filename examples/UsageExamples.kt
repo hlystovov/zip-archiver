@@ -1,6 +1,6 @@
 package com.example.zip
 
-import kotlinx.io.*
+import okio.*
 
 /**
  * Примеры использования стримингового ZIP архиватора с Data Descriptor
@@ -115,29 +115,29 @@ object ZipExamples {
     fun exampleChunkedProcessing() {
         val buffer = Buffer()
         val writer = StreamingZipWriter()
-        
+
         // Создаем источник, который имитирует поступление данных чанками
-        val chunkedSource = object : Source {
+        val chunkedSource = object : BufferedSource {
             private var chunkIndex = 0
             private val totalChunks = 5
-            
-            override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
+
+            override fun read(sink: okio.Buffer, byteCount: Long): Long {
                 if (chunkIndex >= totalChunks) return -1
-                
+
                 val chunk = "Chunk ${chunkIndex + 1} of data\n".encodeToByteArray()
                 sink.write(chunk)
                 chunkIndex++
                 return chunk.size.toLong()
             }
-            
-            override fun exhausted() = chunkIndex >= totalChunks
+
+            override fun timeout(): okio.Timeout = okio.Timeout.NONE
             override fun close() {}
         }
-        
+
         // Записываем данные по мере поступления
         writer.addFileStreaming(buffer, "chunked.txt", chunkedSource)
         writer.finish(buffer)
-        
+
         println("Chunked file archived")
     }
 }

@@ -1,7 +1,7 @@
 package com.example.zip
 
 import kotlinx.cinterop.*
-import kotlinx.io.*
+import okio.*
 import platform.posix.*
 
 /**
@@ -118,7 +118,7 @@ private fun createArchive(args: Array<String>) {
         // Записываем буфер в файл
         var totalWritten = 0L
         while (!buffer.exhausted()) {
-            val bytes = buffer.readByteArray(minOf(buffer.size.toInt(), 8192))
+            val bytes = buffer.readByteArray(minOf(buffer.size, 8192L))
             writeToFd(fd, bytes)
             totalWritten += bytes.size
         }
@@ -206,7 +206,7 @@ private fun createStreamingArchive(args: Array<String>) {
         
         // Записываем буфер в файл
         while (!buffer.exhausted()) {
-            val bytes = buffer.readByteArray(minOf(buffer.size.toInt(), 8192))
+            val bytes = buffer.readByteArray(minOf(buffer.size, 8192L))
             writeToFd(fd, bytes)
         }
         

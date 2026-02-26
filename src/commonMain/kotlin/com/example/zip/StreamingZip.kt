@@ -1,7 +1,7 @@
 package com.example.zip
 
-import kotlinx.io.Sink
-import kotlinx.io.Source
+import okio.BufferedSink
+import okio.BufferedSource
 import kotlin.experimental.and
 
 /**
@@ -29,7 +29,7 @@ internal data class DataDescriptor(
     val uncompressedSize: Int,
     val useSignature: Boolean = true
 ) {
-    fun writeTo(sink: Sink) {
+    fun writeTo(sink: BufferedSink) {
         if (useSignature) {
             sink.writeZipInt(0x08074b50) // Data descriptor signature
         }
@@ -57,7 +57,7 @@ internal data class LocalFileHeader(
     val name: String,
     val extra: ByteArray = byteArrayOf()
 ) {
-    fun writeTo(sink: Sink) {
+    fun writeTo(sink: BufferedSink) {
         sink.writeZipInt(0x04034b50) // Local file header signature
         sink.writeZipShort(version)
         sink.writeZipShort(flags)
@@ -99,7 +99,7 @@ internal data class CentralDirectoryEntry(
     val externalAttrs: Int = 0,
     val localHeaderOffset: Int = 0
 ) {
-    fun writeTo(sink: Sink) {
+    fun writeTo(sink: BufferedSink) {
         sink.writeZipInt(0x02014b50) // Central directory signature
         sink.writeZipShort(versionMadeBy)
         sink.writeZipShort(versionNeeded)
@@ -140,7 +140,7 @@ internal data class EndOfCentralDirectory(
     val centralDirOffset: Int = 0,
     val comment: String = ""
 ) {
-    fun writeTo(sink: Sink) {
+    fun writeTo(sink: BufferedSink) {
         sink.writeZipInt(0x06054b50) // EOCD signature
         sink.writeZipShort(diskNumber)
         sink.writeZipShort(centralDirDisk)
@@ -159,16 +159,16 @@ internal data class EndOfCentralDirectory(
 
 // Helper extensions - ZIP uses little-endian format
 // Note: These are named writeZipInt/writeZipShort to avoid conflict with kotlinx.io methods
-private fun Sink.writeZipInt(value: Int) {
-    writeByte((value and 0xFF).toByte())
-    writeByte(((value shr 8) and 0xFF).toByte())
-    writeByte(((value shr 16) and 0xFF).toByte())
-    writeByte(((value shr 24) and 0xFF).toByte())
+private fun BufferedSink.writeZipInt(value: Int) {
+    writeByte(value and 0xFF)
+    writeByte((value shr 8) and 0xFF)
+    writeByte((value shr 16) and 0xFF)
+    writeByte((value shr 24) and 0xFF)
 }
 
-private fun Sink.writeZipShort(value: Short) {
-    writeByte((value and 0xFF).toByte())
-    writeByte(((value.toInt() shr 8) and 0xFF).toByte())
+private fun BufferedSink.writeZipShort(value: Short) {
+    writeByte(value.toInt() and 0xFF)
+    writeByte((value.toInt() shr 8) and 0xFF)
 }
 
 /**
@@ -240,9 +240,9 @@ class StreamingZipWriter {
      * @param compression Метод сжатия (STORE или DEFLATE)
      */
     fun addFileStreaming(
-        sink: Sink,
+        sink: BufferedSink,
         name: String,
-        source: Source,
+        source: BufferedSource,
         compression: Short = CompressionMethod.STORE
     ) {
         // Используем Data Descriptor для стриминга
@@ -282,7 +282,7 @@ class StreamingZipWriter {
         val buffer = ByteArray(8192)
 
         while (!source.exhausted()) {
-            val bytesRead = source.readAtMostTo(buffer)
+            val bytesRead = source.read(buffer, 0, buffer.size)
             if (bytesRead <= 0) break
 
             uncompressedSize += bytesRead
@@ -329,7 +329,7 @@ class StreamingZipWriter {
      * @param compression Метод сжатия
      */
     fun addFile(
-        sink: Sink,
+        sink: BufferedSink,
         name: String,
         data: ByteArray,
         compression: Short = CompressionMethod.STORE
@@ -387,7 +387,7 @@ class StreamingZipWriter {
      * @param compression Метод сжатия
      */
     fun addLargeFile(
-        sink: Sink,
+        sink: BufferedSink,
         name: String,
         fileSource: FileSource,
         fileSize: Long,
@@ -467,7 +467,7 @@ class StreamingZipWriter {
     private fun compressLargeFileToTemp(
         fileSource: FileSource,
         fileSize: Long,
-        sink: Sink,
+        sink: BufferedSink,
         name: String,
         crc: Int,
         headerOffset: Int
@@ -533,7 +533,7 @@ class StreamingZipWriter {
      * Завершить архив - записать центральную директорию
      * Этот метод ДОЛЖЕН быть вызван после добавления всех файлов
      */
-    fun finish(sink: Sink) {
+    fun finish(sink: BufferedSink) {
         val centralDirOffset = currentOffset
         var centralDirSize = 0
 
@@ -591,7 +591,7 @@ class StreamingZipReader {
     /**
      * Загрузить структуру архива (центральную директорию)
      */
-    fun load(source: Source, fileSize: Long) {
+    fun load(source: BufferedSource, fileSize: Long) {
         entries.clear()
         // TODO: Реализовать чтение центральной директории
     }
@@ -604,7 +604,7 @@ class StreamingZipReader {
     /**
      * Извлечь файл
      */
-    fun extractFile(source: Source, entry: ZipEntryInfo, sink: Sink) {
+    fun extractFile(source: BufferedSource, entry: ZipEntryInfo, sink: BufferedSink) {
         // TODO: Реализовать извлечение с учетом Data Descriptor
     }
 }
@@ -656,4 +656,4 @@ expect fun compressToTempFile(
  * Копирование данных из временного файла в sink
  * @return количество скопированных байт
  */
-expect fun copyFromTempFile(tempFilePath: String, sink: Sink, size: Long): Long
+expect fun copyFromTempFile(tempFilePath: String, sink: BufferedSink, size: Long): Long

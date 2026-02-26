@@ -1,6 +1,6 @@
 package com.example.zip
 
-import kotlinx.io.Sink
+import okio.BufferedSink
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -72,7 +72,7 @@ actual fun compressToTempFile(
     return totalRead
 }
 
-actual fun copyFromTempFile(tempFilePath: String, sink: Sink, size: Long): Long {
+actual fun copyFromTempFile(tempFilePath: String, sink: BufferedSink, size: Long): Long {
     val tempFile = File(tempFilePath)
     val fis = FileInputStream(tempFile)
     val buffer = ByteArray(8192)

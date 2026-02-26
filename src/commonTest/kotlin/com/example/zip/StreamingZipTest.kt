@@ -1,6 +1,6 @@
 package com.example.zip
 
-import kotlinx.io.*
+import okio.*
 import kotlin.test.*
 
 class StreamingZipTest {

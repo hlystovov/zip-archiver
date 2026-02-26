@@ -35,7 +35,7 @@ kotlin {
     sourceSets {
         commonMain {
             dependencies {
-                implementation("org.jetbrains.kotlinx:kotlinx-io-core:0.3.5")
+                implementation("com.squareup.okio:okio:3.15.0")
             }
         }
         commonTest {

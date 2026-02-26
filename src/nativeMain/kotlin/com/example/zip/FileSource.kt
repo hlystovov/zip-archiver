@@ -8,7 +8,7 @@ import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
-import kotlinx.io.Sink
+import okio.BufferedSink
 import platform.posix.O_CREAT
 import platform.posix.O_EXCL
 import platform.posix.O_RDONLY
@@ -161,7 +161,7 @@ actual fun compressToTempFile(
  * @return количество скопированных байт
  */
 @OptIn(ExperimentalForeignApi::class)
-actual fun copyFromTempFile(tempFilePath: String, sink: Sink, size: Long): Long {
+actual fun copyFromTempFile(tempFilePath: String, sink: BufferedSink, size: Long): Long {
     val fd = open(tempFilePath, O_RDONLY)
     if (fd < 0) {
         throw IllegalStateException("Cannot open temp file for reading: $tempFilePath")
