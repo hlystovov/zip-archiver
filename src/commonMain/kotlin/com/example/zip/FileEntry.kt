@@ -10,5 +10,6 @@ internal data class FileEntry(
     val headerOffset: Int,
     var crc32: Int = 0,
     var compressedSize: Int = 0,
-    var uncompressedSize: Int = 0
+    var uncompressedSize: Int = 0,
+    var lastModifiedAtMillis: Long = 0
 )

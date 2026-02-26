@@ -26,23 +26,28 @@ class StreamingZipWriter {
      * @param name Имя файла в архиве
      * @param source Источник данных для стриминговой записи
      * @param compression Метод сжатия (STORE или DEFLATE)
+     * @param lastModifiedAtMillis Время последнего изменения файла в миллисекундах
      */
     fun addFileStreaming(
         sink: BufferedSink,
         name: String,
         source: BufferedSource,
-        compression: Short = CompressionMethod.STORE
+        compression: Short = CompressionMethod.STORE,
+        lastModifiedAtMillis: Long = 0
     ) {
         val flags = ZipFlags.DATA_DESCRIPTOR
         val headerOffset = currentOffset
 
+        val (modTime, modDate) = DosDateTime.fromMillis(lastModifiedAtMillis)
         val localHeader = LocalFileHeader(
             flags = flags,
             compression = compression,
             crc32 = 0,
             compressedSize = 0,
             uncompressedSize = 0,
-            name = name
+            name = name,
+            modTime = modTime,
+            modDate = modDate
         )
 
         localHeader.writeTo(sink)
@@ -56,7 +61,8 @@ class StreamingZipWriter {
             name = name,
             compression = compression,
             flags = flags,
-            headerOffset = headerOffset
+            headerOffset = headerOffset,
+            lastModifiedAtMillis = lastModifiedAtMillis
         )
 
         val buffer = ByteArray(8192)
@@ -101,7 +107,8 @@ class StreamingZipWriter {
         sink: BufferedSink,
         name: String,
         data: ByteArray,
-        compression: Short = CompressionMethod.STORE
+        compression: Short = CompressionMethod.STORE,
+        lastModifiedAtMillis: Long = 0
     ) {
         crc32.reset()
         crc32.update(data)
@@ -113,12 +120,15 @@ class StreamingZipWriter {
             data
         }
 
+        val (modTime, modDate) = DosDateTime.fromMillis(lastModifiedAtMillis)
         val localHeader = LocalFileHeader(
             name = name,
             compression = compression,
             crc32 = crc,
             compressedSize = compressedData.size,
-            uncompressedSize = data.size
+            uncompressedSize = data.size,
+            modTime = modTime,
+            modDate = modDate
         )
 
         val headerOffset = currentOffset
@@ -137,7 +147,8 @@ class StreamingZipWriter {
                 headerOffset = headerOffset,
                 crc32 = crc,
                 compressedSize = compressedData.size,
-                uncompressedSize = data.size
+                uncompressedSize = data.size,
+                lastModifiedAtMillis = lastModifiedAtMillis
             )
         )
     }
@@ -150,7 +161,8 @@ class StreamingZipWriter {
         name: String,
         fileSource: FileSource,
         fileSize: Long,
-        compression: Short = CompressionMethod.STORE
+        compression: Short = CompressionMethod.STORE,
+        lastModifiedAtMillis: Long = 0
     ) {
         require(fileSize <= Int.MAX_VALUE) { "File too large for ZIP32" }
 
@@ -172,18 +184,21 @@ class StreamingZipWriter {
         val crc = crc32.getValue()
 
         if (compression == CompressionMethod.DEFLATE) {
-            compressLargeFileToTemp(fileSource, fileSize, sink, name, crc, headerOffset)
+            compressLargeFileToTemp(fileSource, fileSize, sink, name, crc, headerOffset, lastModifiedAtMillis)
             return
         }
 
         val compressedSize = intSize
+        val (modTime, modDate) = DosDateTime.fromMillis(lastModifiedAtMillis)
 
         val localHeader = LocalFileHeader(
             name = name,
             compression = compression,
             crc32 = crc,
             compressedSize = compressedSize,
-            uncompressedSize = intSize
+            uncompressedSize = intSize,
+            modTime = modTime,
+            modDate = modDate
         )
 
         localHeader.writeTo(sink)
@@ -208,7 +223,8 @@ class StreamingZipWriter {
                 headerOffset = headerOffset,
                 crc32 = crc,
                 compressedSize = compressedSize,
-                uncompressedSize = intSize
+                uncompressedSize = intSize,
+                lastModifiedAtMillis = lastModifiedAtMillis
             )
         )
     }
@@ -219,7 +235,8 @@ class StreamingZipWriter {
         sink: BufferedSink,
         name: String,
         crc: Int,
-        headerOffset: Int
+        headerOffset: Int,
+        lastModifiedAtMillis: Long = 0
     ) {
         val tempFile = createTempFile("zip_compress_")
         try {
@@ -229,12 +246,15 @@ class StreamingZipWriter {
             val finalCompression = if (useCompression) CompressionMethod.DEFLATE else CompressionMethod.STORE
             val finalCompressedSize = if (useCompression) compressedSize.toInt() else fileSize.toInt()
 
+            val (modTime, modDate) = DosDateTime.fromMillis(lastModifiedAtMillis)
             val localHeader = LocalFileHeader(
                 name = name,
                 compression = finalCompression,
                 crc32 = crc,
                 compressedSize = finalCompressedSize,
-                uncompressedSize = fileSize.toInt()
+                uncompressedSize = fileSize.toInt(),
+                modTime = modTime,
+                modDate = modDate
             )
 
             localHeader.writeTo(sink)
@@ -265,7 +285,8 @@ class StreamingZipWriter {
                     headerOffset = headerOffset,
                     crc32 = crc,
                     compressedSize = finalCompressedSize,
-                    uncompressedSize = fileSize.toInt()
+                    uncompressedSize = fileSize.toInt(),
+                    lastModifiedAtMillis = lastModifiedAtMillis
                 )
             )
         } finally {
@@ -278,10 +299,13 @@ class StreamingZipWriter {
         var centralDirSize = 0
 
         for (entry in entries) {
+            val (modTime, modDate) = DosDateTime.fromMillis(entry.lastModifiedAtMillis)
             val cdEntry = CentralDirectoryEntry(
                 name = entry.name,
                 flags = entry.flags,
                 compression = entry.compression,
+                modTime = modTime,
+                modDate = modDate,
                 crc32 = entry.crc32,
                 compressedSize = entry.compressedSize,
                 uncompressedSize = entry.uncompressedSize,

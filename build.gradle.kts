@@ -36,6 +36,7 @@ kotlin {
         commonMain {
             dependencies {
                 implementation("com.squareup.okio:okio:3.15.0")
+                implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
             }
         }
         commonTest {
