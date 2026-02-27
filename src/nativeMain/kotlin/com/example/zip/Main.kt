@@ -92,44 +92,19 @@ private fun createArchive(args: Array<String>) {
     try {
         val writer = StreamingZipWriter()
         val buffer = Buffer()
-        val LARGE_FILE_THRESHOLD = 10 * 1024 * 1024L // 10 MB
 
         for (filePath in files) {
             println("  Adding: $filePath")
-            val name = filePath.substringAfterLast('/')
-
-            // Открываем файл для определения размера
-            val fileSource = FileSource(filePath)
-            val fileSize = fileSource.size()
-            val lastModified = FileSystem.SYSTEM.metadataOrNull(filePath.toPath())?.lastModifiedAtMillis ?: 0L
-
-            try {
-                if (fileSize > LARGE_FILE_THRESHOLD) {
-                    // Большой файл - используем двухпроходную обработку
-                    println("    Large file (${fileSize / 1024 / 1024}MB), using two-pass processing...")
-                    writer.addLargeFile(buffer, name, fileSource, fileSize, CompressionMethod.DEFLATE, lastModified)
-                } else if (fileSize <= Int.MAX_VALUE) {
-                    // Маленький файл - читаем через fileSource вместо повторного открытия
-                    val content = readFileFromSource(fileSource, fileSize)
-                    if (content != null) {
-                        // Используем DEFLATE для файлов > 1KB, иначе STORE
-                        val compression = if (content.size > 1024) {
-                            CompressionMethod.DEFLATE
-                        } else {
-                            CompressionMethod.STORE
-                        }
-                        writer.addFile(buffer, name, content, compression, lastModified)
-                        if (compression == CompressionMethod.DEFLATE) {
-                            println("    Compressed with DEFLATE")
-                        }
-                    } else {
-                        println("    Warning: Cannot read $filePath")
-                    }
-                } else {
-                    println("    Warning: File too large: $filePath")
-                }
-            } finally {
-                fileSource.close()
+            val file = filePath.toPath()
+            val fileSize = FileSystem.SYSTEM.metadataOrNull(file)?.size ?: 0
+            val compression = if (fileSize > 1024) {
+                CompressionMethod.DEFLATE
+            } else {
+                CompressionMethod.STORE
+            }
+            writer.addFile(buffer, file, compression)
+            if (compression == CompressionMethod.DEFLATE) {
+                println("    Compressed with DEFLATE")
             }
         }
 
@@ -288,26 +263,6 @@ private fun readFile(path: String): ByteArray? {
     } finally {
         close(fd)
     }
-}
-
-/**
- * Чтение файла из FileSource
- */
-@OptIn(ExperimentalForeignApi::class)
-private fun readFileFromSource(fileSource: FileSource, size: Long): ByteArray? {
-    if (size > Int.MAX_VALUE) return null
-
-    fileSource.seek(0)
-    val buffer = ByteArray(size.toInt())
-    var totalRead = 0
-
-    while (totalRead < size) {
-        val read = fileSource.read(buffer, totalRead, (size - totalRead).toInt())
-        if (read <= 0) break
-        totalRead += read
-    }
-
-    return if (totalRead == size.toInt()) buffer else null
 }
 
 /**
