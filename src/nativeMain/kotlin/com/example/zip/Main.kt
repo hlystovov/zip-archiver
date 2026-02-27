@@ -10,7 +10,6 @@ import okio.Buffer
 import okio.FileSystem
 import okio.Path.Companion.toPath
 import platform.posix.O_CREAT
-import platform.posix.O_RDONLY
 import platform.posix.O_TRUNC
 import platform.posix.O_WRONLY
 import platform.posix.SEEK_END
@@ -35,7 +34,6 @@ fun main(args: Array<String>) {
 
     when (args[0]) {
         "create" -> createArchive(args)
-        "create-streaming" -> createStreamingArchive(args)
         "list" -> listArchive(args)
         "extract" -> extractFile(args)
         else -> {
@@ -159,62 +157,6 @@ private fun createArchive(args: Array<String>) {
 }
 
 /**
- * Создание ZIP архива в стриминговом режиме с Data Descriptor
- */
-@OptIn(ExperimentalForeignApi::class)
-private fun createStreamingArchive(args: Array<String>) {
-    if (args.size < 3) {
-        println("Usage: create-streaming <archive.zip> <file1> [file2...]")
-        return
-    }
-
-    val archivePath = args[1]
-    val files = args.drop(2)
-
-    println("Creating archive (streaming mode with Data Descriptor): $archivePath")
-
-    val fd = open(archivePath, O_WRONLY or O_CREAT or O_TRUNC, 420) // 0644
-    if (fd < 0) {
-        println("Error: Cannot create file $archivePath")
-        return
-    }
-
-    try {
-        val writer = StreamingZipWriter()
-        val buffer = Buffer()
-
-        for (filePath in files) {
-            println("  Streaming: $filePath")
-
-            // Читаем файл чанками через временный Source
-            val fileContent = readFile(filePath)
-            if (fileContent != null) {
-                val name = filePath.substringAfterLast('/')
-                val source = Buffer().apply { write(fileContent) }
-                writer.addFileStreaming(buffer, name, source, CompressionMethod.STORE)
-            } else {
-                println("    Warning: Cannot read $filePath")
-            }
-        }
-
-        writer.finish(buffer)
-
-        // Записываем буфер в файл
-        while (!buffer.exhausted()) {
-            val bytes = buffer.readByteArray(minOf(buffer.size, 8192L))
-            writeToFd(fd, bytes)
-        }
-
-        fsync(fd)
-
-        println("Archive created: ${writer.getEntryCount()} files (using Data Descriptor)")
-
-    } finally {
-        close(fd)
-    }
-}
-
-/**
  * Список содержимого архива
  */
 private fun listArchive(args: Array<String>) {
@@ -247,43 +189,6 @@ private fun extractFile(args: Array<String>) {
 
     // TODO: Реализовать извлечение
     println("Extraction not yet implemented")
-}
-
-/**
- * Чтение файла в ByteArray
- */
-@OptIn(ExperimentalForeignApi::class)
-private fun readFile(path: String): ByteArray? {
-    val fd = open(path, O_RDONLY)
-    if (fd < 0) return null
-
-    return try {
-        val size = getFileSize(fd)
-        readFileFromFd(fd, size)
-    } finally {
-        close(fd)
-    }
-}
-
-/**
- * Чтение файла из дескриптора
- */
-@OptIn(ExperimentalForeignApi::class)
-private fun readFileFromFd(fd: Int, size: Long): ByteArray? {
-    if (size > Int.MAX_VALUE) return null
-
-    val buffer = ByteArray(size.toInt())
-    var totalRead = 0
-
-    while (totalRead < size) {
-        val read = buffer.usePinned { pinned ->
-            read(fd, pinned.addressOf(totalRead), (size - totalRead).toULong())
-        }
-        if (read <= 0) break
-        totalRead += read.toInt()
-    }
-
-    return if (totalRead == size.toInt()) buffer else null
 }
 
 /**
