@@ -1,31 +1,14 @@
 package com.example.zip
 
-import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.alloc
-import kotlinx.cinterop.memScoped
-import kotlinx.cinterop.ptr
-import kotlinx.cinterop.usePinned
 import okio.Buffer
 import okio.FileSystem
 import okio.Path.Companion.toPath
-import platform.posix.O_CREAT
-import platform.posix.O_TRUNC
-import platform.posix.O_WRONLY
-import platform.posix.SEEK_END
-import platform.posix.close
-import platform.posix.fstat
-import platform.posix.fsync
-import platform.posix.lseek
-import platform.posix.open
-import platform.posix.read
-import platform.posix.stat
-import platform.posix.write
+import okio.SYSTEM
+import okio.use
 
 /**
  * Пример использования стримингового ZIP архиватора с Data Descriptor
  */
-@OptIn(ExperimentalForeignApi::class)
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
         printUsage()
@@ -69,7 +52,6 @@ private fun printUsage() {
  * Создание ZIP архива в буферизованном режиме
  * Для больших файлов (>10MB) использует двухпроходную обработку без Data Descriptor
  */
-@OptIn(ExperimentalForeignApi::class)
 private fun createArchive(args: Array<String>) {
     if (args.size < 3) {
         println("Usage: create <archive.zip> <file1> [file2...]")
@@ -80,57 +62,47 @@ private fun createArchive(args: Array<String>) {
     val files = args.drop(2)
 
     println("Creating archive (compatible mode): $archivePath")
+    val writer = StreamingZipWriter()
+    val buffer = Buffer()
 
-    val fd = open(archivePath, O_WRONLY or O_CREAT or O_TRUNC, 420) // 0644
-    if (fd < 0) {
-        println("Error: Cannot create file $archivePath")
-        return
+    for (filePath in files) {
+        println("  Adding: $filePath")
+        val file = filePath.toPath()
+        val fileSize = FileSystem.SYSTEM.metadataOrNull(file)?.size ?: 0
+        val compression = if (fileSize > 1024) {
+            CompressionMethod.DEFLATE
+        } else {
+            CompressionMethod.STORE
+        }
+        writer.addFile(buffer, file, compression)
+        if (compression == CompressionMethod.DEFLATE) {
+            println("    Compressed with DEFLATE")
+        }
     }
 
-    try {
-        val writer = StreamingZipWriter()
-        val buffer = Buffer()
-
-        for (filePath in files) {
-            println("  Adding: $filePath")
-            val file = filePath.toPath()
-            val fileSize = FileSystem.SYSTEM.metadataOrNull(file)?.size ?: 0
-            val compression = if (fileSize > 1024) {
-                CompressionMethod.DEFLATE
-            } else {
-                CompressionMethod.STORE
-            }
-            writer.addFile(buffer, file, compression)
-            if (compression == CompressionMethod.DEFLATE) {
-                println("    Compressed with DEFLATE")
-            }
-        }
-
-        writer.finish(buffer)
-
-        // Записываем буфер в файл
-        var totalWritten = 0L
+    writer.finish(buffer)
+    val fileSystem = FileSystem.SYSTEM
+    val dest = archivePath.toPath()
+    // Записываем буфер в файл
+    var totalWritten = 0L
+    fileSystem.write(dest, false) {
         while (!buffer.exhausted()) {
             val bytes = buffer.readByteArray(minOf(buffer.size, 8192L))
-            writeToFd(fd, bytes)
+            this.write(bytes)
             totalWritten += bytes.size
         }
-
-        fsync(fd)
-
-        // Проверяем валидность архива
-        val fileSize = getFileSize(fd)
-        println("Archive created: ${writer.getEntryCount()} files")
-        println("Archive size: $fileSize bytes")
-        println("Data written: $totalWritten bytes")
-
+    }
+    // Проверяем валидность архива
+    val fileSize = fileSystem.metadata(dest).size
+    println("Archive created: ${writer.getEntryCount()} files")
+    println("Archive size: $fileSize bytes")
+    println("Data written: $totalWritten bytes")
+    fileSystem.openReadOnly(dest).use { handle ->
+        val buffer = Buffer()
+        val bytesRead = handle.read(handle.size() - 22, buffer, 4)
         // Проверяем EOCD сигнатуру в конце файла
-        lseek(fd, -22, SEEK_END)
-        val eocdBuffer = ByteArray(4)
-        val read = eocdBuffer.usePinned { pinned ->
-            read(fd, pinned.addressOf(0), 4u)
-        }
-        if (read == 4L) {
+        if (bytesRead == 4L) {
+            val eocdBuffer = buffer.readByteArray(4)
             val signature = (eocdBuffer[0].toInt() and 0xFF) or
                     ((eocdBuffer[1].toInt() and 0xFF) shl 8) or
                     ((eocdBuffer[2].toInt() and 0xFF) shl 16) or
@@ -150,9 +122,6 @@ private fun createArchive(args: Array<String>) {
         }
 
         println("Compatible with macOS Archive Utility (no Data Descriptor)")
-
-    } finally {
-        close(fd)
     }
 }
 
@@ -189,34 +158,4 @@ private fun extractFile(args: Array<String>) {
 
     // TODO: Реализовать извлечение
     println("Extraction not yet implemented")
-}
-
-/**
- * Получение размера файла
- */
-@OptIn(ExperimentalForeignApi::class)
-private fun getFileSize(fd: Int): Long {
-    return memScoped {
-        val statBuf = alloc<stat>()
-        if (fstat(fd, statBuf.ptr) == 0) {
-            statBuf.st_size
-        } else {
-            0L
-        }
-    }
-}
-
-/**
- * Запись в файловый дескриптор
- */
-@OptIn(ExperimentalForeignApi::class)
-private fun writeToFd(fd: Int, bytes: ByteArray) {
-    bytes.usePinned { pinned ->
-        var written = 0
-        while (written < bytes.size) {
-            val result = write(fd, pinned.addressOf(written), (bytes.size - written).toULong())
-            if (result < 0) break
-            written += result.toInt()
-        }
-    }
 }

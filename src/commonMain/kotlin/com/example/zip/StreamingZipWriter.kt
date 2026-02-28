@@ -8,7 +8,6 @@ import okio.Path
 import okio.SYSTEM
 import okio.buffer
 import okio.deflate
-import okio.internal.CRC32
 import okio.use
 
 /**
@@ -73,7 +72,7 @@ class StreamingZipWriter {
             uncompressedBuffer.readByteArray()
         }
 
-        val crcValue = crc32.getValue().toInt()
+        val crcValue = crc32.getValue()
         val (modTime, modDate) = DosDateTime.fromMillis(lastModifiedAtMillis)
 
         val localHeader = LocalFileHeader(
