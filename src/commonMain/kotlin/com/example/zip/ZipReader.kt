@@ -4,9 +4,9 @@ import okio.BufferedSink
 import okio.BufferedSource
 
 /**
- * Стриминговый ZIP Reader
+ * ZIP Reader
  */
-class StreamingZipReader {
+class ZipReader {
     private val entries = mutableListOf<ZipEntryInfo>()
 
     fun load(source: BufferedSource, fileSize: Long) {

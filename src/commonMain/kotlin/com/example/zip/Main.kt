@@ -37,10 +37,6 @@ private fun printUsage() {
     println("           - Small files (<10MB): buffered with optional DEFLATE compression")
     println("           - Large files (>=10MB): two-pass processing, no Data Descriptor")
     println()
-    println("  create-streaming <archive.zip> <file1> [file2...]")
-    println("           Create ZIP archive with Data Descriptor (true streaming)")
-    println("           WARNING: May not be compatible with macOS Archive Utility")
-    println()
     println("  list <archive.zip>")
     println("           List archive contents")
     println()
@@ -62,7 +58,7 @@ private fun createArchive(args: Array<String>) {
     val files = args.drop(2)
 
     println("Creating archive (compatible mode): $archivePath")
-    val writer = StreamingZipWriter()
+    val writer = ZipWriter()
     val buffer = Buffer()
 
     for (filePath in files) {

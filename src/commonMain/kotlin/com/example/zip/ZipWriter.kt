@@ -11,10 +11,9 @@ import okio.deflate
 import okio.use
 
 /**
- * Стриминговый ZIP Writer с поддержкой Data Descriptor
- * Позволяет писать файлы в архив без предварительного знания размеров
+ * ZIP Writer
  */
-class StreamingZipWriter {
+class ZipWriter {
     private val entries = mutableListOf<FileEntry>()
     private var currentOffset = 0
     private val crc32 = CRC32()
