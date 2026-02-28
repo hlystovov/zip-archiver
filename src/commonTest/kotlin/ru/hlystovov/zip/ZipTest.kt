@@ -1,8 +1,10 @@
-package com.example.zip
+package ru.hlystovov.zip
 
 import okio.Buffer
 import okio.FileSystem
+import okio.Path
 import okio.SYSTEM
+import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -10,11 +12,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ZipTest {
-    private lateinit var tempDir: okio.Path
+    private lateinit var tempDir: Path
 
     @BeforeTest
     fun setUp() {
-        tempDir = FileSystem.SYSTEM_TEMPORARY_DIRECTORY.resolve("zip-test-${kotlin.random.Random.nextInt()}")
+        tempDir = FileSystem.SYSTEM_TEMPORARY_DIRECTORY.resolve("zip-test-${Random.nextInt()}")
         FileSystem.SYSTEM.createDirectory(tempDir, true)
     }
 
@@ -23,7 +25,7 @@ class ZipTest {
         FileSystem.SYSTEM.deleteRecursively(tempDir)
     }
 
-    private fun createTempFile(name: String, content: String): okio.Path {
+    private fun createTempFile(name: String, content: String): Path {
         val path = tempDir.resolve(name)
         FileSystem.SYSTEM.write(path) {
             writeUtf8(content)
@@ -31,7 +33,7 @@ class ZipTest {
         return path
     }
 
-    private fun createTempFile(name: String, content: ByteArray): okio.Path {
+    private fun createTempFile(name: String, content: ByteArray): Path {
         val path = tempDir.resolve(name)
         FileSystem.SYSTEM.write(path) {
             write(content)

@@ -1,4 +1,4 @@
-package com.example.zip
+package ru.hlystovov.zip
 
 /**
  * CRC32 implementation for ZIP files

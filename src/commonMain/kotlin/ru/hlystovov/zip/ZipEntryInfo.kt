@@ -1,4 +1,4 @@
-package com.example.zip
+package ru.hlystovov.zip
 
 /**
  * Информация о файле в ZIP архиве

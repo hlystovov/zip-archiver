@@ -1,4 +1,4 @@
-package com.example.zip
+package ru.hlystovov.zip
 
 import okio.Buffer
 import okio.FileSystem
