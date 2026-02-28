@@ -1,5 +1,5 @@
 plugins {
-    kotlin("multiplatform") version "2.1.0"
+    kotlin("multiplatform") version "2.3.10"
 }
 
 group = "ru.hlystovov"
@@ -27,7 +27,7 @@ kotlin {
         commonMain {
             dependencies {
                 implementation("com.squareup.okio:okio:3.15.0")
-                implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
+                implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
             }
         }
         commonTest {
