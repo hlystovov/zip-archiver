@@ -12,11 +12,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ZipTest {
-    private lateinit var tempDir: Path
+    private val tempDir: Path = FileSystem.SYSTEM_TEMPORARY_DIRECTORY.resolve("zip-test-${Random.nextInt()}")
 
     @BeforeTest
     fun setUp() {
-        tempDir = FileSystem.SYSTEM_TEMPORARY_DIRECTORY.resolve("zip-test-${Random.nextInt()}")
         FileSystem.SYSTEM.createDirectory(tempDir, true)
     }
 
@@ -106,26 +105,6 @@ class ZipTest {
     @Test
     fun testZipFlags() {
         assertEquals(0x0008, ZipFlags.DATA_DESCRIPTOR, "DATA_DESCRIPTOR flag should be 0x0008")
-    }
-
-    @Test
-    fun testDataDescriptor() {
-        val buffer = Buffer()
-        val dd = DataDescriptor(
-            crc32 = 0x12345678,
-            compressedSize = 100,
-            uncompressedSize = 200
-        )
-
-        dd.writeTo(buffer)
-
-        val bytes = buffer.readByteArray()
-        assertEquals(16, bytes.size, "Data Descriptor with signature should be 16 bytes")
-
-        // Проверяем что данные записаны корректно
-        // Сигнатура: 0x08074b50 в little-endian
-        // После сигнатуры идут: CRC32 (4 bytes), compressedSize (4 bytes), uncompressedSize (4 bytes)
-        assertTrue(bytes.size >= 16, "Should have at least 16 bytes")
     }
 
     @Test

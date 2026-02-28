@@ -1,6 +1,7 @@
 package ru.hlystovov.zip
 
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -25,8 +26,8 @@ object DosDateTime {
 
         val year = dateTime.year - 1980
         val dosDate = (((year and 0x7F) shl 9) or
-                ((dateTime.monthNumber and 0xF) shl 5) or
-                (dateTime.dayOfMonth and 0x1F)).toShort()
+                ((dateTime.month.number and 0xF) shl 5) or
+                (dateTime.day and 0x1F)).toShort()
 
         return Pair(dosTime, dosDate)
     }

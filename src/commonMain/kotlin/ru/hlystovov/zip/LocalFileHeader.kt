@@ -16,7 +16,6 @@ internal data class LocalFileHeader(
     val compressedSize: Int = 0,
     val uncompressedSize: Int = 0,
     val name: String,
-    val extra: ByteArray = byteArrayOf()
 ) {
     fun writeTo(sink: BufferedSink) {
         sink.writeZipInt(0x04034b50) // Local file header signature
@@ -30,11 +29,10 @@ internal data class LocalFileHeader(
         sink.writeZipInt(uncompressedSize)
         val nameBytes = name.encodeToByteArray()
         sink.writeZipShort(nameBytes.size.toShort())
-        sink.writeZipShort(extra.size.toShort())
+        sink.writeZipShort(0)
         sink.write(nameBytes)
-        sink.write(extra)
     }
 
     val headerSize: Int
-        get() = 30 + name.encodeToByteArray().size + extra.size
+        get() = 30 + name.encodeToByteArray().size
 }

@@ -16,7 +16,6 @@ internal data class CentralDirectoryEntry(
     val compressedSize: Int = 0,
     val uncompressedSize: Int = 0,
     val name: String,
-    val extra: ByteArray = byteArrayOf(),
     val comment: String = "",
     val diskNumber: Short = 0,
     val internalAttrs: Short = 0,
@@ -37,17 +36,16 @@ internal data class CentralDirectoryEntry(
         val nameBytes = name.encodeToByteArray()
         val commentBytes = comment.encodeToByteArray()
         sink.writeZipShort(nameBytes.size.toShort())
-        sink.writeZipShort(extra.size.toShort())
+        sink.writeZipShort(0)
         sink.writeZipShort(commentBytes.size.toShort())
         sink.writeZipShort(diskNumber)
         sink.writeZipShort(internalAttrs)
         sink.writeZipInt(externalAttrs)
         sink.writeZipInt(localHeaderOffset)
         sink.write(nameBytes)
-        sink.write(extra)
         sink.write(commentBytes)
     }
 
     val entrySize: Int
-        get() = 46 + name.encodeToByteArray().size + extra.size + comment.encodeToByteArray().size
+        get() = 46 + name.encodeToByteArray().size + comment.encodeToByteArray().size
 }
